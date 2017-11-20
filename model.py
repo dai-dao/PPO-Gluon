@@ -4,7 +4,6 @@ from mxnet import gluon, autograd, nd
 from utils import * 
 
 
-# Doesn't work -> WHY??? -> Scale the action
 class ActorCritic(gluon.Block):
     def __init__(self, state_dim, action_dim, action_bound, args, **kwargs):
         super(ActorCritic, self).__init__(**kwargs)

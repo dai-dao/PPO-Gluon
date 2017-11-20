@@ -42,12 +42,30 @@ class PPO(object):
         return action
 
 
+    def step(self, s):
+        s = nd.array(s, ctx=self.args.ctx)
+        s = nd.reshape(s, (-1, self.observation_dim))
+
+        value, mu, sigma = self.net(s)
+        action = self.net.sample(mu, sigma)
+        logpac = self.net.log_gaussian(action, mu, sigma)
+
+        value = value.asnumpy()[0][0]
+
+        action = action.asnumpy()[0][0]
+        action = np.clip(action, self.action_bound[0], self.action_bound[1])
+
+        logpac = logpac.asnumpy()[0][0]
+
+        return value, action, logpac
+
+
     def get_value(self, s):
         s = nd.array(s, ctx=self.args.ctx)
         s = nd.reshape(s, (-1, self.observation_dim))
 
         value = self.net.get_value(s)
-        value = value.asnumpy()[0]     
+        value = value.asnumpy()[0][0]     
         return value
 
 

@@ -10,3 +10,7 @@ class Params(object):
         self.num_update_steps = 10
         self.value_coefficient = 0.5
         self.entropy_coefficient = 0.01
+        self.nsteps = 128
+        self.gamma = 0.99
+        self.lam = 0.95
+                    
