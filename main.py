@@ -10,7 +10,7 @@ ppo = PPO(env, params)
 all_ep_r = []
 
 
-EP_MAX = 200
+EP_MAX = 300
 EP_LEN = 200
 GAMMA = 0.9
 LR = 0.0001

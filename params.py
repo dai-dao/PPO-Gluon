@@ -8,3 +8,5 @@ class Params(object):
         self.critic_lr = 0.002 
         self.clip_param = 0.2
         self.num_update_steps = 10
+        self.value_coefficient = 0.5
+        self.entropy_coefficient = 0.01

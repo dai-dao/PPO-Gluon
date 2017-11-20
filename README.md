@@ -8,3 +8,7 @@ Success
 7. The exploration noise causes NAN gradients, thus NAN outputs
 8. Need experience replay because it's OBVIOUSLY forgetting stuff from the past. 
 9. Use OpenAI examples
+
+
+
+1. Combine 2 nets into one -> Works -> Learns a bit slower I think
