@@ -45,8 +45,8 @@ class ActorCritic(gluon.Block):
 
 
     def entropy(self, sigma):
-        return nd.sum(nd.log(sigma + 1e-5) + .5 * np.log(2.0 * np.pi * np.e), axis=-1)
+        return nd.sum(nd.log(sigma + 1e-8) + .5 * np.log(2.0 * np.pi * np.e), axis=-1)
 
 
     def log_gaussian(self, x, mu, sigma):   
-        return -0.5 * np.log(2.0 * np.pi) - nd.log(sigma + 1e-5) - (x - mu) ** 2 / (2 * sigma ** 2 + 1e-5)
+        return -0.5 * np.log(2.0 * np.pi) - nd.log(sigma + 1e-8) - (x - mu) ** 2 / (2 * sigma ** 2 + 1e-8)

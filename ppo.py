@@ -13,17 +13,14 @@ class PPO(object):
         self.env = env
         self.args = args
 
-        # Exploration
-        self.noise = OrnsteinUhlenbeckActionNoise(self.action_dim)
-
         self.net = ActorCritic(self.observation_dim, self.action_dim, self.action_bound, self.args)
-        self.old_net = ActorCritic(self.observation_dim, self.action_dim, self.action_bound, self.args)
+        # self.old_net = ActorCritic(self.observation_dim, self.action_dim, self.action_bound, self.args)
 
         self.net.collect_params().initialize(ctx=self.args.ctx)
-        self.old_net.collect_params().initialize(ctx=self.args.ctx)
+        # self.old_net.collect_params().initialize(ctx=self.args.ctx)
 
         # Copy params from new to old
-        soft_update(self.old_net, self.net)
+        # soft_update(self.old_net, self.net)
         self.trainer = gluon.Trainer(self.net.collect_params(), 'adam', 
                                         {'learning_rate' : self.args.actor_lr})
 
@@ -46,16 +43,14 @@ class PPO(object):
         s = nd.array(s, ctx=self.args.ctx)
         s = nd.reshape(s, (-1, self.observation_dim))
 
-        value, mu, sigma = self.net(s)
-        action = self.net.sample(mu, sigma)
-        logpac = self.net.log_gaussian(action, mu, sigma)
+        value = self.get_value(s)
+        action = self.choose_action(s)
 
-        value = value.asnumpy()[0][0]
+        action_nd = nd.array(action, ctx=self.args.ctx).reshape((-1, self.action_dim))
+        _, mu, sigma = self.net(s)
+        logpac = self.net.log_gaussian(action_nd, mu, sigma)
 
-        action = action.asnumpy()[0][0]
-        action = np.clip(action, self.action_bound[0], self.action_bound[1])
-
-        logpac = logpac.asnumpy()[0][0]
+        logpac = logpac.asnumpy()[0]
 
         return value, action, logpac
 
@@ -69,38 +64,85 @@ class PPO(object):
         return value
 
 
-    def update(self, b_s, b_a, b_r):
-        # Copy params from new to old
-        soft_update(self.old_net, self.net)
-
+    def update(self, b_s, b_a, b_r, b_logpac):
         b_s = nd.array(b_s, ctx=self.args.ctx).reshape((-1, self.observation_dim))
         b_a = nd.array(b_a, ctx=self.args.ctx).reshape((-1, self.action_dim))
         b_r = nd.array(b_r, ctx=self.args.ctx).reshape((-1, 1))
+        b_oldpi_log_prob = nd.array(b_logpac, ctx=self.args.ctx).reshape((-1, self.action_dim))
 
-        _, old_mu, old_sigma = self.old_net(b_s)
-        oldpi_log_prob = self.old_net.log_gaussian(b_a, old_mu, old_sigma)
-        
-        for _ in range(self.args.num_update_steps):
-            with autograd.record():
-                # Value loss
-                v_pred, mu, sigma = self.net(b_s)
-                advantage = b_r - v_pred
-                vf_loss = nd.mean(nd.square(advantage))
+        with autograd.record():
+            # Value loss
+            v_pred, mu, sigma = self.net(b_s)
+            advantage = b_r - v_pred
+            vf_loss = nd.mean(nd.square(advantage))
 
-                # Detach from the computation graph
-                advantage = advantage.detach()
+            # Detach from the computation graph
+            advantage = advantage.detach()
 
-                # Action loss
-                pi_log_prob = self.net.log_gaussian(b_a, mu, sigma)
-                ratio = nd.exp(pi_log_prob - oldpi_log_prob)
-                surr1 = ratio * advantage
-                surr2 = nd.clip(ratio, 1.0 - self.args.clip_param, 1.0 + self.args.clip_param) * advantage
-                actor_loss = -nd.mean(nd.minimum(surr1, surr2))
-                entropy = self.net.entropy(sigma)
+            # Action loss
+            pi_log_prob = self.net.log_gaussian(b_a, mu, sigma)
+            # ratio = nd.exp(pi_log_prob - oldpi_log_prob)
+            ratio = nd.exp(pi_log_prob - b_oldpi_log_prob)
+            surr1 = ratio * advantage
+            surr2 = nd.clip(ratio, 1.0 - self.args.clip_param, 1.0 + self.args.clip_param) * advantage
+            actor_loss = -nd.mean(nd.minimum(surr1, surr2))
+            entropy = self.net.entropy(sigma)
 
-                # Total (maximize entropy to encourage exploration)
-                loss = vf_loss * self.args.value_coefficient + actor_loss \
+            # Total (maximize entropy to encourage exploration)
+            loss = vf_loss * self.args.value_coefficient + actor_loss \
+                    - entropy * self.args.entropy_coefficient
+
+        loss.backward()
+        self.trainer.step(b_s.shape[0])
+
+    
+    def new_update(self, obs, actions, values, dones, logpacs, returns, discounted_r, clip_param, lr):
+        # advantages = returns - values 
+        # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+        # advantages = nd.array(advantages, ctx=self.args.ctx).reshape((-1, 1))
+        obs = nd.array(obs, ctx=self.args.ctx).reshape((-1, self.observation_dim))
+        actions = nd.array(actions, ctx=self.args.ctx).reshape((-1, self.action_dim))
+        values = nd.array(values, ctx=self.args.ctx).reshape((-1, 1))
+        returns = nd.array(returns, ctx=self.args.ctx).reshape((-1, 1))
+        oldpi_log_prob = nd.array(logpacs, ctx=self.args.ctx).reshape((-1, self.action_dim))
+        discounted_r = nd.array(discounted_r, ctx=self.args.ctx).reshape((-1, 1))
+
+        # Learning rate scheduling
+        # self.trainer.set_learning_rate(lr)
+
+        # Auto grad
+        with autograd.record():
+            # Value loss
+            vpred, mu, sigma = self.net(obs)
+
+            '''
+            vpred_clipped = values + nd.clip(vpred - values, -clip_param, clip_param)
+            vf_loss1 = nd.square(vpred - returns)
+            vf_loss2 = nd.square(vpred_clipped - returns)
+            vf_loss = nd.mean(nd.maximum(vf_loss1, vf_loss2))
+            '''
+
+            advantages = discounted_r - vpred
+            vf_loss = nd.mean(nd.square(advantages)) # TESTING
+            clip_param = 0.2 # TESTING
+
+            advantages = advantages.detach()
+
+            # Action loss
+            pi_log_prob = self.net.log_gaussian(actions, mu, sigma)
+            ratio = nd.exp(pi_log_prob - oldpi_log_prob)
+            surr1 = ratio * advantages
+            surr2 = nd.clip(ratio, 1.0 - clip_param, 1.0 + clip_param) * advantages
+            actor_loss = -nd.mean(nd.minimum(surr1, surr2))
+            
+            # Entropy term
+            entropy = self.net.entropy(sigma)
+
+            # Total loss
+            loss = vf_loss * self.args.value_coefficient + actor_loss \
                         - entropy * self.args.entropy_coefficient
 
-            loss.backward()
-            self.trainer.step(b_s.shape[0])
+        # Compute gradients and updates
+        loss.backward()
+        self.trainer.step(obs.shape[0])
