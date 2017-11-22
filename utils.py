@@ -23,6 +23,34 @@ class FaninInit(mx.init.Initializer):
         arr[:] = 0
 
 
+@mx.init.register
+class OrthoInit(mx.init.Initializer):
+    def __init__(self, scale=1.0):
+        super(OrthoInit, self).__init__()
+        self.scale = scale
+
+    def _init_weight(self, _, arr):
+        shape = arr.shape
+        shape = tuple(shape)
+        if len(shape) == 2:
+            flat_shape = shape
+        elif len(shape) == 4: 
+            # assumes NHWC
+            # flat_shape = (np.prod(shape[:-1]), shape[-1])
+            # assumes NCHW
+            flat_shape = (np.prod([shape[0], shape[2], shape[3]]), shape[1])
+
+        a = np.random.normal(0.0, 1.0, flat_shape)
+        u, _, v = np.linalg.svd(a, full_matrices=False)
+        q = u if u.shape == flat_shape else v # pick the one with the correct shape
+        q = q.reshape(shape)
+        out = (self.scale * q[:shape[0], :shape[1]]).astype(np.float32)
+        arr[:] = out
+
+    def _init_bias(self, _, arr):
+        arr[:] = 0
+
+
 def soft_update(dest, src, tau=1.0):
     dest_prefix = dest.collect_params()._prefix
     src_prefix = src.collect_params()._prefix
@@ -54,3 +82,12 @@ class OrnsteinUhlenbeckActionNoise:
         dx = dx + self.sigma * np.random.randn(len(self.X))
         self.X = self.X + dx
         return self.X
+
+
+def flatten_env_vec(arr):
+    '''
+        arr shape is [num_env, num_steps, ob_shape]
+        is the swap necessary??
+    '''
+    s = arr.shape
+    return arr.swapaxes(0, 1).reshape(s[0] * s[1], *s[2:])
