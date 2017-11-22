@@ -1,7 +1,8 @@
 import gym 
 import numpy as np 
 from params import *
-from ppo import *
+from ppo_discrete import *
+from ppo_cont import * 
 from collections import deque
 import os.path as osp
 
@@ -23,12 +24,12 @@ class Trainer(object):
         self.dones = [False for _ in range(self.nenv)]
 
 
-    def run(self):
+    def run(self, num_steps_so_far):
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_logpacs = [],[],[],[],[],[]
         epinfos = []        
 
         for _ in range(self.args.nsteps): # 1 roll-out
-            values, actions, logpacs = self.agent.step(self.obs)
+            values, actions, logpacs = self.agent.step(self.obs, num_steps_so_far)
 
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
@@ -48,7 +49,7 @@ class Trainer(object):
         mb_logpacs = np.array(mb_logpacs, dtype=np.float32)
         mb_dones = np.asarray(mb_dones, dtype=np.bool)
 
-        last_value, _, _ = self.agent.step(self.obs)
+        last_value, _, _ = self.agent.step(self.obs, num_steps_so_far)
 
         # discount / boostrap off value
         mb_returns = np.zeros_like(mb_rewards)
@@ -87,8 +88,9 @@ class Trainer(object):
             frac = 1.0 - (update - 1.0) / nupdates
             lrnow = self.args.lr_schedule(frac)
             cliprangenow = self.args.clip_range_schedule(frac)
+            num_steps_so_far = update * nbatch
 
-            obs, returns, masks, actions, values, logpacs, epinfos = self.run()
+            obs, returns, masks, actions, values, logpacs, epinfos = self.run(num_steps_so_far)
             epinfobuf.extend(epinfos)
             inds = np.arange(nbatch)
             mblossvals = []
@@ -99,12 +101,12 @@ class Trainer(object):
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
                     batch_inds = inds[start : end]
-                    
-                    # self.agent.update(obs[batch_inds], actions[batch_inds], \
-                    #                   discounted_r[batch_inds], logpacs[batch_inds])
                     slices = (arr[batch_inds] for arr in (obs, returns, masks, actions, values, logpacs))
-                    pg_loss, vf_loss, entropy = self.agent.update(*slices, lrnow, cliprangenow)
-                    mblossvals.append([pg_loss, vf_loss, entropy])
+                    # pg_loss, vf_loss, entropy = self.agent.update(*slices, lrnow, cliprangenow)
+                    # mblossvals.append([pg_loss, vf_loss, entropy])
+                    pg_loss, vf_loss = self.agent.update(*slices, lrnow, cliprangenow)
+                    mblossvals.append([pg_loss, vf_loss])
+
 
             # Logging
             lossvals = np.mean(mblossvals, axis=0)
@@ -158,7 +160,7 @@ def test_cartpole():
 def test_breakout():
     logger.configure('./log', ['stdout', 'tensorboard'])
 
-    nenvs = 2
+    nenvs = 8
     env = SubprocVecEnv([make_env(i, 'BreakoutNoFrameskip-v4') for i in range(nenvs)])
     env = VecFrameStack(env, 4)
 

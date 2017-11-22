@@ -19,6 +19,9 @@ class Breakout_Params(object):
         self.clip_range_schedule = lambda x : x * 0.1
         self.num_timesteps = int(10e6 * 1.1)
 
+        self.epsilon_min = 0.1 
+        self.annealing_end = 1000000.
+
 
 class Pendulum_Params(object):
     def __init__(self):

@@ -51,7 +51,7 @@ class ActorCritic_Discrete(gluon.Block):
         x = self.l1(x)
 
         value = self.value(x)
-        logits = self.logits(x)
+        logits = F.softmax(self.logits(x))
         return value, logits
 
 
@@ -67,8 +67,9 @@ class ActorCritic_Discrete(gluon.Block):
 
     
     def sample(self, logits):
-        u = nd.random.uniform(shape=logits.shape)
-        return nd.argmax(logits - nd.log(-nd.log(u)), axis=-1)
+        # u = nd.random.uniform(shape=logits.shape)
+        # return nd.argmax(logits - nd.log(-nd.log(u)), axis=-1)
+        return nd.sample_multinomial(logits)
 
 
     def log_prob(self, logits, action):
@@ -77,16 +78,14 @@ class ActorCritic_Discrete(gluon.Block):
             logits : unnormalized 
         '''
         # One number, Not vector output
+        # This doesn't work
         return -self.act_loss(logits, action)
 
 
     def entropy(self, logits):
-        a0 = logits - nd.max(logits, axis=-1, keepdims=True)
-        ea0 = nd.exp(a0)
-        z0 = nd.sum(ea0, axis=-1, keepdims=True)
-        p0 = ea0 / z0
-        return nd.sum(p0 * (nd.log(z0) - a0), axis=-1)
-
+        # This works
+        out = -nd.sum(logits * nd.log(logits + 1e-8), axis=1)
+        return out
 
 
 class ActorCritic_Gaussian(gluon.Block):
